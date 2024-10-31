@@ -1,17 +1,18 @@
 import os
 import yaml
+import json
 import cv2
 import math
 from pathlib import Path
 import numpy as np
 import shutil
 from datetime import datetime
-from coco_loader import CocoLoader
-from openimages_loader import OpenImagesLoader
-from o365_loader import O365Loader
-from widerface_loader import WiderfaceLoader
-from roboflow_loader import RoboflowLoader
-from weapondetection_loader import WeaponDetectionLoader
+from src.loaders.coco_loader import CocoLoader
+from src.loaders.openimages_loader import OpenImagesLoader
+from src.loaders.o365_loader import O365Loader
+from src.loaders.widerface_loader import WiderfaceLoader
+from src.loaders.roboflow_loader import RoboflowLoader
+from src.loaders.weapondetection_loader import WeaponDetectionLoader
 
 def mldata_folder():
     d=os.environ.get('MLDATA_LOCATION')
@@ -754,3 +755,18 @@ def get_loader(name):
         print("Could not find loader "+name)
         exit()
     return loaders[name]
+
+def load_dictionary(name):
+    if name.endswith(".json"):
+        with open(name) as json_file:
+            dict = json.load(json_file)
+        return dict
+    if name.endswith(".yml") or name.endswith(".yaml"):
+        with open(name) as stream:
+            try:
+                dict=yaml.safe_load(stream)
+            except yaml.YAMLError as exc:
+                print(exc)
+                exit()
+        return dict
+    return None

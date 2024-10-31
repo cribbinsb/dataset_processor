@@ -12,14 +12,16 @@ from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
 import copy
 from datetime import datetime
-import dataset_util as dsu
-import ultralytics_ap as uap
-import annotation_loader as an
+import src.dataset_util as dsu
+import src.ultralytics_ap as uap
+import src.dataset_processor as dp
 import json
 from datetime import datetime, timedelta
 import time
 
 def fstr(x):
+    if x==None:
+        return "        "
     x=float(x)
     if x<0.0001:
         return "        "
@@ -27,7 +29,7 @@ def fstr(x):
 
 def compute_one_ap(dataset, model_path, yolo_model=None, batchsize=16, max_det=600, iou_thr=0.5, nms_iou=0.6, det_conf=0.001, classes=None, augment=False):
     
-    x=an.AnnotationLoader(dataset, task="val", class_names=classes)
+    x=dp.DatasetProcessor(dataset, task="val", class_names=classes)
     nc=len(classes)
     if not yolo_model==None:
         x.set_yolo_detector(yolo_model)
@@ -272,7 +274,7 @@ def show_results_plt(results, columns, column_text, sort_key, result_location):
             for r in r_ds:
                 data_row=[r["model"]]
                 for c in columns:
-                    data_row.append(fstr(r[c]))
+                    data_row.append(fstr(r[c] if c in r else None))
                 data.append(data_row)
 
             fig, ax = plt.subplots(figsize=(16, 0.3*len(r_ds)+4))
@@ -347,7 +349,10 @@ def show_results(results, columns, column_text, sort_key):
             label+="+aug"
         out="{:20s} {:26s} ".format(label[0:19],r["model"])
         for c in columns:
-            out+=fstr(r[c])
+            if not c in r:
+                out+="        "
+            else:
+                out+=fstr(r[c])
         
         sortscr=ds[r["dataset"]]*1000+r[sort_key]
         if r["augment"]==True:
@@ -369,12 +374,11 @@ def show_results(results, columns, column_text, sort_key):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default='data/map_ultralytics.json', help='config file to use')
+    parser.add_argument('--config', type=str, default='data/map_ultralytics.json', help='config file to use (json or yml)')
     parser.add_argument('--batch-size', type=int, default=16)
     opt = parser.parse_args()
 
-    with open(opt.config) as json_file:
-        config = json.load(json_file)
+    config = dsu.load_dictionary(opt.config)
 
     result_location=config["results_location"]
     resultfile=config["results_cache_file"]

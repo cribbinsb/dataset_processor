@@ -1,4 +1,4 @@
-import dataset_util as du
+import src.dataset_util as du
 import os
 
 # This code assumes you have already downloaded the widerface dataset
