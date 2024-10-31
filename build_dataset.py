@@ -1,8 +1,8 @@
-from dataset_processor import DatasetProcessor
-import dataset_util as dsu
+from src.dataset_processor import DatasetProcessor
+from src.dataset_processor import dataset_merge_and_delete
+import src.dataset_util as dsu
 import os
 import argparse
-import json
 import math
 import time
 import copy
@@ -233,8 +233,8 @@ def build_task_normalise(processor):
     - make sure all the co-ordinates are in range
     - make sure there aren't multiple overlapping instances of the same class
     """
-    for i in tqdm(range(processor.num_files), desc=processor.dataset_name+"/"+processor.task+"/normalise"):
-        gts=processor.get_gt(i)
+    for idx in tqdm(range(processor.num_files), desc=processor.dataset_name+"/"+processor.task+"/normalise"):
+        gts=processor.get_gt(idx)
         if gts==None:
             continue
         for g in gts:
@@ -251,7 +251,7 @@ def build_task_normalise(processor):
                     g["pose_points"][i]=dsu.clip01(g["pose_points"][i])
         # dedup does a kind of NMS style removal of multiple overlapping instances of the same class
         gts=dsu.dedup_gt(gts, iou_thr=0.5)
-        processor.replace_annotations(i, gts)
+        processor.replace_annotations(idx, gts)
 
 def build_task_generate_backgrounds(class_names, config, face_kp=True, pose_kp=True):
 
@@ -379,93 +379,116 @@ def merge(a: dict, b: dict, path=[]):
             a[key] = b[key]
     return a
 
-def process_dataset(config):
-    with open(config) as json_file:
-        config = json.load(json_file)
+def get_expanded_config(path, config_filename, dataset_name):
+    config = dsu.load_dictionary(os.path.join(path, config_filename))
+    dataset_config=config["datasets"][dataset_name]
+    if "general" in dataset_config:
+        if "inherit_config" in dataset_config["general"]:
+            inherit_from=dataset_config["general"]["inherit_config"]
+            if "/" in inherit_from:
+                ih_config_filename, ih_dataset_name=inherit_from.split("/")
+            else:
+                ih_config_filename, ih_dataset_name=config_filename, inherit_from
+            ih_config=get_expanded_config(path, ih_config_filename, ih_dataset_name)
+            ih_config=copy.deepcopy(ih_config)
+            merge(ih_config, dataset_config)
+            return ih_config
+    return dataset_config
 
-    for dataset_name in config["datasets"]:
+def generate_dataset(path, config_filename, dataset_name, force_generate=False):
+    config = dsu.load_dictionary(os.path.join(path, config_filename))
+    
+    # create new empty dataset
+    dataset_config=get_expanded_config(path, config_filename, dataset_name)
+    
+    general_config=dataset_config["general"]
+    class_names=general_config["class_names"]
+    face_kp=general_config["face_kp"]
+    pose_kp=general_config["pose_kp"]
+    tasks=["val","train"]
+    chunk_size=10000
+    if "generate" in general_config:
+        if general_config["generate"]==False and force_generate==False:
+            return None
+    if "tasks" in general_config:
+        tasks=general_config["tasks"]
+    if "chunk_size" in general_config:
+        chunk_size=general_config["chunk_size"]
 
-        # create new empty dataset
+    unique_dataset_name=dsu.unique_dataset_name(dataset_name)
+    yaml_path=dsu.make_dataset_yaml(unique_dataset_name, class_names=class_names, face_kp=face_kp, pose_kp=pose_kp)
 
-        if "default" in config:
-            dataset_config=copy.deepcopy(config["default"])
-            merge(dataset_config, config["datasets"][dataset_name])
-        else:
-            dataset_config=config["datasets"][dataset_name]
+    if "merge" in dataset_config:
+        datasets_to_merge=dataset_config["merge"]
+        for d in datasets_to_merge:
+            to_merge_yaml=generate_dataset(path, config_filename, d, force_generate=True)
+            dataset_merge_and_delete(to_merge_yaml, yaml_path)
+        for task in ["val","train"]:
+            x=DatasetProcessor(yaml_path, task=task, append_log=True)
+            x.log("======================")
+            x.log(" Final merged stats: "+str(x.basic_stats()))
+        return yaml_path 
 
-        general_config=dataset_config["general"]
-        class_names=general_config["class_names"]
-        face_kp=general_config["face_kp"]
-        pose_kp=general_config["pose_kp"]
-        tasks=["val","train"]
-        chunk_size=10000
-        if "tasks" in general_config:
-            tasks=general_config["tasks"]
-        if "chunk_size" in general_config:
-            chunk_size=general_config["chunk_size"]
-
-        unique_dataset_name=dsu.unique_dataset_name(dataset_name)
-        yaml_path=dsu.make_dataset_yaml(unique_dataset_name, class_names=class_names, face_kp=face_kp, pose_kp=pose_kp)
-
-        for task in tasks:
-            
-            processor=DatasetProcessor(yaml_path, task=task, append_log=True)
-
-            # import 
-
-            import_config=dataset_config["import"]
-            build_task_import(processor, import_config)
-
-            # hard subset
-
-            if "make_hard" in dataset_config:
-                hard_config=dataset_config["make_hard"]
-                build_task_make_hard(processor, hard_config)
-            
-            start_time=time.time()
-            processor.chunk_size=chunk_size
-            processor.reload_files() 
-
-            for chunk in range(processor.num_chunks):
-                print(f"\n==== {processor.dataset_name} {processor.task} : chunk {chunk} of {processor.num_chunks} ====")
-                t=time.time()
-                processor.set_chunk(chunk)
-
-                # add objects
-
-                if "add_objects" in dataset_config:
-                    add_object_config=dataset_config["add_objects"]
-                    for detector_config in add_object_config:
-                        build_task_add_objects(processor, detector_config)
-
-                # add pose points
-
-                if "add_pose" in dataset_config:
-                    add_object_config=dataset_config["add_pose"]
-                    for detector_config in add_object_config:
-                        build_task_add_pose(processor, detector_config)
-                
-                # add faces
-
-                if "add_faces" in dataset_config:
-                    add_object_config=dataset_config["add_faces"]
-                    for detector_config in add_object_config:
-                        build_task_add_faces(processor, detector_config)
-
-                # normalise
-
-                build_task_normalise(processor)
-                
-                elapsed=time.time()-t
-                total_elapsed=time.time()-start_time
-                remaining=(processor.num_chunks-chunk-1)*total_elapsed/(chunk+1.0)
-                
-                print(f"chunk took {(int(elapsed))} seconds; total {(int)(total_elapsed/60.0)}mins remaining {(int(remaining/60.0))}mins")
+    for task in tasks:
         
-        # generate background images
+        processor=DatasetProcessor(yaml_path, task=task, append_log=True, face_kp=face_kp, pose_kp=pose_kp)
 
-        if "add_backgrounds" in dataset_config:
-            bg_config=dataset_config["add_backgrounds"]
+        # import 
+
+        import_config=dataset_config["import"]
+        build_task_import(processor, import_config)
+
+        # hard subset
+
+        if "make_hard" in dataset_config:
+            hard_config=dataset_config["make_hard"]
+            build_task_make_hard(processor, hard_config)
+        
+        start_time=time.time()
+        processor.chunk_size=chunk_size
+        processor.reload_files() 
+
+        for chunk in range(processor.num_chunks):
+            print(f"\n==== {processor.dataset_name} {processor.task} : chunk {chunk} of {processor.num_chunks} ====")
+            t=time.time()
+            processor.set_chunk(chunk)
+
+            # add objects
+
+            if "add_objects" in dataset_config:
+                add_object_config=dataset_config["add_objects"]
+                for detector_config in add_object_config:
+                    build_task_add_objects(processor, detector_config)
+
+            # add pose points
+
+            if "add_pose" in dataset_config:
+                add_object_config=dataset_config["add_pose"]
+                for detector_config in add_object_config:
+                    build_task_add_pose(processor, detector_config)
+            
+            # add faces
+
+            if "add_faces" in dataset_config:
+                add_object_config=dataset_config["add_faces"]
+                for detector_config in add_object_config:
+                    build_task_add_faces(processor, detector_config)
+
+            # normalise
+
+            build_task_normalise(processor)
+            
+            elapsed=time.time()-t
+            total_elapsed=time.time()-start_time
+            remaining=(processor.num_chunks-chunk-1)*total_elapsed/(chunk+1.0)
+            
+            print(f"chunk took {(int(elapsed))} seconds; total {(int)(total_elapsed/60.0)}mins remaining {(int(remaining/60.0))}mins")
+    
+    # generate background images
+
+    if "add_backgrounds" in dataset_config:
+        bg_config=dataset_config["add_backgrounds"]
+        if bg_config["loader"]!="None":
             bg_yaml=build_task_generate_backgrounds(class_names, bg_config, face_kp=face_kp, pose_kp=pose_kp) 
             
             for task in tasks:
@@ -482,8 +505,16 @@ def process_dataset(config):
             print(f"generate_backgrounds: delete folder {path}...")
             dsu.rmdir(path)
 
+    return yaml_path
+
+def process_dataset(config_filename):
+    config = dsu.load_dictionary(config_filename)
+
+    for dataset_name in config["datasets"]:
+        generate_dataset(os.path.split(config_filename)[0], os.path.split(config_filename)[1], dataset_name)
+        
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='process_dataset.py')
-    parser.add_argument('--config', type=str, default="dataset_config.json", help='JSON configuration to use')
+    parser.add_argument('--config', type=str, default="dataset_config.yaml", help='Configuration to use (json/yaml)')
     opt = parser.parse_args()
     process_dataset(opt.config)

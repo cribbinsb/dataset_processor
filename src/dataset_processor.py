@@ -73,7 +73,7 @@ class DatasetProcessor:
             if has_small_persons:
                 small_persons_count+=1
             image_count+=1
-        return {"class_counts":class_counts, "image_count":image_count, "image_small_person_count":small_persons_count, "has_face_kp":face_point_count, "has_pose_kp":pose_point_count}
+        return {"task":self.task, "class_counts":class_counts, "image_count":image_count, "image_small_person_count":small_persons_count, "has_face_kp":face_point_count, "has_pose_kp":pose_point_count}
 
     def log_stats(self):
         stats=self.basic_stats()
@@ -284,3 +284,22 @@ class DatasetProcessor:
                     out_det.append(det)
 
         return out_det
+    
+def dataset_merge_and_delete(src, dest):
+    dsu.append_comments(dest, "====== Merge dataset "+src+" ======")
+    with open(src, 'r') as file:
+        for line in file:
+            if line.startswith("#"):
+                dsu.append_comments(dest, line[1:].strip())    
+    
+    dest_path=dsu.get_dataset_path(dest)
+    
+    for task in ["val","train"]:
+        x=DatasetProcessor(src, task=task)
+        for i in range(x.num_files):    
+            img=x.get_img_path(i)
+            label=x.get_label_path(i)
+            dsu.rename(img, dest_path+"/"+task+"/images/"+os.path.basename(img))
+            dsu.rename(label, dest_path+"/"+task+"/labels/"+os.path.basename(label))
+    
+    dsu.rmdir(os.path.dirname(src))
