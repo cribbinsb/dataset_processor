@@ -16,3 +16,5 @@ dependencies:
   - pip
   - pycocotools>=2
   - ultralytics
+  - pip:
+    - exif

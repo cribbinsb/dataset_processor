@@ -113,6 +113,7 @@ class DatasetProcessor:
         dst_img=self.dataset_path+"/"+self.task+"/images/"+name+".jpg"
         dst_label=self.dataset_path+"/"+self.task+"/labels/"+name+".txt"
         shutil.copyfile(img_file, dst_img)
+        dsu.image_append_exif_comment(dst_img, "origin="+img_file)
         an_txt=dsu.write_annotations(dets, include_face=self.face_kp, include_pose=self.pose_kp)
         with open(dst_label, 'w') as file:
             file.write(an_txt)
@@ -130,6 +131,9 @@ class DatasetProcessor:
         dsu.rename(self.ds_files[index]["image"], dst_img)
         self.ds_files[index]["label"]=dst_label
         self.ds_files[index]["image"]=dst_img
+
+    def append_exif_comment(self, index, comment):  
+        dsu.image_append_exif_comment(self.ds_files[index]["image"], comment)
     
     def set_yolo_detector(self, yolo, imgsz=640, thr=0.001, rect=False, half=True, batch_size=32, augment=False):
         

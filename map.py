@@ -165,7 +165,7 @@ def get_avg_scores(results, model, param):
         if r["model"]==model:
             if param in r:
                 if isinstance(r[param], int) or isinstance(r[param], float):
-                    if r[param]!=0:
+                    if r[param]>0.001:
                         t*=r[param]
                         n=n+1
     if n>0:
@@ -178,7 +178,11 @@ def add_averages(results):
     datasets = sorted(list(set(entry['dataset'] for entry in results)), reverse=True)
 
     models = list(set(entry['model'] for entry in results))
-    params = list(results[0].keys())
+    paramset=set([])
+    for r in results:
+        paramset=paramset.union(set(r.keys()))
+
+    params = list(paramset)
     params.remove("model")
     params.remove("dataset")
     params.remove("datasetaug")
@@ -460,7 +464,7 @@ if __name__ == '__main__':
 
                 cached_result_to_use=None
                 for r in cached_results:
-                    if r["model"]==model_name and r["dataset"]==dataset_name and r["augment"]==augment and r["classes"]==classes:
+                    if r["model"]==model_name and r["dataset"]==dataset_name and r["augment"]==augment and set(classes)<=set(r["classes"]):
                         if cached_result_to_use==None or r["time"]>cached_result_to_use["time"]:
                             if r["time"]>min_time:
                                 cached_result_to_use=r

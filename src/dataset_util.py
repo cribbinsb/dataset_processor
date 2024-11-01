@@ -3,8 +3,10 @@ import yaml
 import json
 import cv2
 import math
+import exif
 from pathlib import Path
 import numpy as np
+import exif
 import shutil
 from datetime import datetime
 from src.loaders.coco_loader import CocoLoader
@@ -413,7 +415,7 @@ def kp_iou(kp_gt, kp_det, s, num_pt):
     elif num_pt==22:
         scales=[0.025, 0.025, 0.026, 0.025, 0.025, 0.026, 0.025, 0.025, 0.035, 0.035, 0.079, 0.079, 0.072, 0.072, 0.062, 0.062, 0.107, 0.107, 0.087, 0.087, 0.089, 0.089]
     else:
-        scales=[0.025]*npoint
+        scales=[0.025]*num_pt
 
     scales=[x*2 for x in scales] # scale=2*sigma
 
@@ -562,7 +564,7 @@ def draw_boxes(img, an, class_names=None, alt_clr=False):
         if "test" in a:
             clr=(0,255,255)
         cv2.rectangle(img, (x1, y1), (x2, y2), clr, 2)
-        label=class_names[a["class"]] if not class_names==None else str(classes[i])
+        label=class_names[a["class"]] if not class_names==None else f"Class_{i}"
         label+=" "
         label+="{:4.3f}  ".format(a["confidence"])
 
@@ -688,13 +690,19 @@ def write_annotations(an, include_face=True, include_pose=False):
         an_txt+=str(a["class"])+" {0:.4f} {1:.4f} {2:.4f} {3:.4f} ".format(cx,cy,w,h)
 
         if include_face:
-            fp=a["face_points"]
+            if "face_points" in a:
+                fp=a["face_points"]
+            else:
+                fp=[0]*15
             for i in range(5*3):
                 #if fp[i]<0 or fp[i]>1.0:
                 #    print(f"Warning: face point {i} out of range {fp[i]}")
                 an_txt+=sstr(clip01(fp[i]))
         if include_pose:
-            pp=a["pose_points"]
+            if "pose_points" in a:
+                pp=a["pose_points"]
+            else:
+                pp=[0]*17*3
             for i in range(17*3):
                 if pp[i]<0 or pp[i]>1.0:
                     print(f"Warning: pose point {i} out of range {pp[i]}")
@@ -770,3 +778,29 @@ def load_dictionary(name):
                 exit()
         return dict
     return None
+
+def image_add_exif_comment(image_file, comment):
+    image=exif.Image(image_file)
+    image["user_comment"]=comment
+    with open(image_file, 'wb') as file:
+        new_image_file.write(image.get_file())
+
+def image_append_exif_comment(image_file, comment):
+    try:
+        image=exif.Image(image_file)
+        old_comment=None
+        if image.has_exif:
+            old_comment=image.get("user_comment")
+        if old_comment!=None:
+            image.delete("user_comment")
+            comment=old_comment+";"+comment
+        image["user_comment"]=comment
+        with open(image_file, 'wb') as file:
+            file.write(image.get_file())
+    except Exception as e:
+        pass #print("image_append_exif_comment exception")
+
+def image_get_exif_comment(image_file):
+    image=exif.Image(image_file)
+    comment=image.get("user_comment")
+    return comment

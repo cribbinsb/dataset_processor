@@ -44,7 +44,6 @@ class O365Loader:
         img_height=img_info['height']
         out_det=[]
         for ann in anns:
-            keypoints=[0]*51
             bbox=ann['bbox']
             x=bbox[0]/img_width
             y=bbox[1]/img_height
@@ -55,18 +54,35 @@ class O365Loader:
                 "class":self.class_mappings[ann['category_id']],
                 "confidence":1.0,
                 "face_points":[0]*15,
-                "pose_points":keypoints}
+                "pose_points":[0]*51}
             out_det.append(det)
         return out_det
         
     def get_annotations(self, img_id):
         ann_ids = self.o365.getAnnIds(imgIds=img_id, catIds=self.category_list, iscrowd=False)
         ann_ids_crowd = self.o365.getAnnIds(imgIds=img_id, catIds=self.category_list, iscrowd=True)
+        
         if len(ann_ids_crowd)!=0:
             return None
+        
         anns = self.o365.loadAnns(ann_ids)
-        return du.dedup_gt(self.get_o365_anns(img_id, anns))
-    
+        
+        gts=du.dedup_gt(self.get_o365_anns(img_id, anns))
+        
+        #if (int(img_id)==68559) or int(img_id)==56107:
+        #    print(img_id)print(ann_ids)
+        #    print(ann_ids_crowd)
+        #    
+        #    for a in anns:
+        #        print(a['category_id'])
+        #        category=self.o365.loadCats(a['category_id'])
+        #        if category:
+        #            print(category[0]['name'])
+        #    print(gts)
+        #    exit()
+
+        return gts
+     
     def get_image_ids(self):
         image_ids=set()
         for c in self.category_list:
